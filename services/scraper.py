@@ -56,7 +56,6 @@ class BaseStoryProvider(ABC):
     async def fetch_stories(self, username: str) -> UserProfile:
         pass
 
-
 class DirectInstagramProvider(BaseStoryProvider):
     """
     Acessa o Instagram diretamente usando sessionid.
@@ -98,7 +97,7 @@ class DirectInstagramProvider(BaseStoryProvider):
             "Referer": "https://www.instagram.com/",
         }
 
-    def _get_session_parts(self) -> tuple[str, str]:
+    def _get_session_parts(self) -> tuple:
         session_id_raw = os.getenv("IG_SESSIONID", config.IG_SESSIONID).strip()
         session_id = unquote(session_id_raw)
         ds_user_id = ""
@@ -119,7 +118,7 @@ class DirectInstagramProvider(BaseStoryProvider):
 
     async def _lookup_user_via_web_profile_info(
         self, client: httpx.AsyncClient, username: str
-    ) -> tuple[str, str, str, bool]:
+    ) -> tuple:
         """
         Resolve o perfil exato via web_profile_info.
         Retorna (pk, full_name, avatar_url, is_private).
@@ -168,7 +167,7 @@ class DirectInstagramProvider(BaseStoryProvider):
 
     async def _lookup_user_via_topsearch(
         self, client: httpx.AsyncClient, username: str
-    ) -> tuple[str, str, str, bool]:
+    ) -> tuple:
         """Fallback: resolve user_id via topsearch (menos preciso)."""
         url = "https://www.instagram.com/web/search/topsearch/"
         params = {"context": "blended", "query": username}
@@ -318,7 +317,6 @@ class DirectInstagramProvider(BaseStoryProvider):
 
         return stories
 
-
 class StoriesIGProvider(BaseStoryProvider):
     @property
     def name(self) -> str:
@@ -401,7 +399,6 @@ class StoriesIGProvider(BaseStoryProvider):
             stories=parsed_stories
         )
 
-
 class AnonyIGProvider(BaseStoryProvider):
     @property
     def name(self) -> str:
@@ -459,7 +456,6 @@ class AnonyIGProvider(BaseStoryProvider):
             except Exception as e:
                 logger.warning(f"AnonyIG falhou: {e}")
                 raise ScraperException(f"AnonyIG falhou: {e}")
-
 
 class ThirdMirrorProvider(BaseStoryProvider):
     """
@@ -525,7 +521,6 @@ class ThirdMirrorProvider(BaseStoryProvider):
                 logger.warning(f"Terceiro mirror falhou: {e}")
                 raise ScraperException(f"Terceiro mirror falhou: {e}")
 
-
 class StoryScraper:
     def __init__(self, providers: Optional[List[BaseStoryProvider]] = None):
         self._custom_providers = providers
@@ -560,17 +555,23 @@ class StoryScraper:
                 profile = await provider.fetch_stories(clean_user)
                 logger.info(f"Sucesso com '{provider.name}': {profile.story_count} stories encontrados.")
                 return profile
-            except (ProfileNotFoundError, ProfilePrivateError):
+            except ProfilePrivateError:
+                # Perfil privado é definitivo: nenhum mirror poderá acessar.
                 raise
+            except ProfileNotFoundError as e:
+                # "Não encontrado" neste provedor NÃO significa que o perfil
+                # não existe — apenas que este provedor não o indexou.
+                # Continua para o próximo provedor.
+                logger.warning(f"Provedor '{provider.name}' não indexou @{clean_user}: {e}. Tentando fallback...")
+                last_error = e
             except Exception as e:
                 logger.warning(f"Provedor '{provider.name}' falhou: {e}. Tentando fallback...")
                 last_error = e
 
-        has_session = bool(os.getenv("IG_SESSIONID", config.IG_SESSIONID))
-        hint = "" if has_session else (
-            " Dica: Configure o IG_SESSIONID no arquivo .env para acesso direto e estável."
-        )
-
-        raise ScraperException(
-            f"Não foi possível obter os stories de @{clean_user} no momento.{hint} (Detalhes: {last_error})"
-        )
+        if last_error is not None:
+            raise ScraperException(
+                f"Não foi possível obter os stories de @{clean_user} com nenhum provedor. "
+                f"O perfil pode existir, mas não está indexado nos mirrors disponíveis. "
+                f"(Último erro: {last_error})"
+            )
+        raise ScraperException(f"Não foi possível obter os stories de @{clean_user}.")
