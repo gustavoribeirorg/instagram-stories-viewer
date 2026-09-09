@@ -1,0 +1,19 @@
+﻿services:
+  stories-app:
+    build: .
+    container_name: instagram-stories-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - INTERVAL_HOURS=24
+      - REQUEST_DELAY_SECONDS=3.0
+      - IG_USERNAME=${IG_USERNAME:-}
+      - IG_PASSWORD=${IG_PASSWORD:-}
+      - IG_SESSIONID=${IG_SESSIONID:-}
+    volumes:
+      - ./data:/app/data
+      - ./downloads:/app/downloads
+      - ./.env:/app/.env:ro

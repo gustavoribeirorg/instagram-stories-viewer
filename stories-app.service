@@ -1,0 +1,15 @@
+﻿[Unit]
+Description=Instagram Stories Viewer & Auto-Downloader
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/instagram
+ExecStart=/home/ubuntu/instagram/venv/bin/python app.py
+Restart=always
+RestartSec=5
+Environment="PYTHONUNBUFFERED=1"
+
+[Install]
+WantedBy=multi-user.target
